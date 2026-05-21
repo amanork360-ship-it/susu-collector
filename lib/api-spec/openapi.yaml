@@ -1,22 +1,31 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Susu Collection System API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: customers
+    description: Customer management
+  - name: collections
+    description: Collection transactions
+  - name: receipts
+    description: Receipt uploads
+  - name: dashboard
+    description: Dashboard metrics and summaries
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +33,596 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Collector login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current collector profile
+      responses:
+        "200":
+          description: Current collector
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collector"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard metrics summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/collections-trend:
+    get:
+      operationId: getCollectionsTrend
+      tags: [dashboard]
+      summary: Get daily collections trend for the past 7 days
+      responses:
+        "200":
+          description: Collections trend data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrendPoint"
+
+  /dashboard/recent-activity:
+    get:
+      operationId: getRecentActivity
+      tags: [dashboard]
+      summary: Get recent collections and receipt uploads
+      responses:
+        "200":
+          description: Recent activity list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
+  /customers:
+    get:
+      operationId: listCustomers
+      tags: [customers]
+      summary: List all assigned customers
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search by name or phone
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, pending, overdue, all]
+          description: Filter by collection status
+      responses:
+        "200":
+          description: List of customers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Customer"
+
+  /customers/{id}:
+    get:
+      operationId: getCustomer
+      tags: [customers]
+      summary: Get customer detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDetail"
+        "404":
+          description: Customer not found
+
+  /customers/{id}/collections:
+    get:
+      operationId: getCustomerCollections
+      tags: [customers]
+      summary: Get collection history for a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Collection history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Collection"
+
+  /customers/{id}/loans:
+    get:
+      operationId: getCustomerLoans
+      tags: [customers]
+      summary: Get loan history for a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Loan history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Loan"
+
+  /customers/{id}/receipts:
+    get:
+      operationId: getCustomerReceipts
+      tags: [customers]
+      summary: Get receipts for a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Receipt"
+
+  /collections:
+    get:
+      operationId: listCollections
+      tags: [collections]
+      summary: List all collections
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter by date (YYYY-MM-DD)
+        - name: customerId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of collections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Collection"
+    post:
+      operationId: createCollection
+      tags: [collections]
+      summary: Record a new collection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CollectionInput"
+      responses:
+        "201":
+          description: Collection recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+        "400":
+          description: Validation error
+
+  /collections/{id}:
+    get:
+      operationId: getCollection
+      tags: [collections]
+      summary: Get a single collection
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Collection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+
+  /receipts:
+    get:
+      operationId: listReceipts
+      tags: [receipts]
+      summary: List all uploaded receipts
+      parameters:
+        - name: customerId
+          in: query
+          schema:
+            type: integer
+        - name: collectionId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Receipt"
+    post:
+      operationId: createReceipt
+      tags: [receipts]
+      summary: Upload a receipt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptInput"
+      responses:
+        "201":
+          description: Receipt uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Receipt"
+
+  /receipts/{id}:
+    get:
+      operationId: getReceipt
+      tags: [receipts]
+      summary: Get receipt detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Receipt detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Receipt"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+
+    AuthResponse:
+      type: object
+      required: [token, collector]
+      properties:
+        token:
+          type: string
+        collector:
+          $ref: "#/components/schemas/Collector"
+
+    Collector:
+      type: object
+      required: [id, name, email, zone]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: ["string", "null"]
+        zone:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        totalCustomers:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    DashboardSummary:
+      type: object
+      required: [totalCollectedToday, assignedCustomers, pendingCollections, loanRepaymentsToday, totalCollectedMonth]
+      properties:
+        totalCollectedToday:
+          type: number
+        assignedCustomers:
+          type: integer
+        pendingCollections:
+          type: integer
+        loanRepaymentsToday:
+          type: number
+        totalCollectedMonth:
+          type: number
+        collectionRate:
+          type: number
+          description: Percentage of assigned customers collected today
+
+    TrendPoint:
+      type: object
+      required: [date, amount, count]
+      properties:
+        date:
+          type: string
+        amount:
+          type: number
+        count:
+          type: integer
+
+    ActivityItem:
+      type: object
+      required: [id, type, description, amount, timestamp]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [collection, receipt_upload, loan_repayment]
+        description:
+          type: string
+        amount:
+          type: ["number", "null"]
+        customerName:
+          type: ["string", "null"]
+        timestamp:
+          type: string
+          format: date-time
+
+    Customer:
+      type: object
+      required: [id, name, phone, savingsBalance, collectionStatus, loanStatus]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+        address:
+          type: ["string", "null"]
+        savingsBalance:
+          type: number
+        collectionStatus:
+          type: string
+          enum: [collected, pending, overdue]
+        loanStatus:
+          type: string
+          enum: [none, active, overdue, paid]
+        outstandingLoan:
+          type: ["number", "null"]
+        lastCollectionDate:
+          type: ["string", "null"]
+          format: date
+        avatarUrl:
+          type: ["string", "null"]
+
+    CustomerDetail:
+      type: object
+      required: [id, name, phone, savingsBalance, collectionStatus, loanStatus, totalCollected, joinedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        phone:
+          type: string
+        address:
+          type: ["string", "null"]
+        savingsBalance:
+          type: number
+        collectionStatus:
+          type: string
+          enum: [collected, pending, overdue]
+        loanStatus:
+          type: string
+          enum: [none, active, overdue, paid]
+        outstandingLoan:
+          type: ["number", "null"]
+        totalCollected:
+          type: number
+        lastCollectionDate:
+          type: ["string", "null"]
+          format: date
+        joinedAt:
+          type: string
+          format: date-time
+        avatarUrl:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+
+    Collection:
+      type: object
+      required: [id, customerId, customerName, amount, collectionDate, paymentMethod, status, createdAt]
+      properties:
+        id:
+          type: integer
+        customerId:
+          type: integer
+        customerName:
+          type: string
+        amount:
+          type: number
+        collectionDate:
+          type: string
+          format: date
+        paymentMethod:
+          type: string
+          enum: [cash, mobile_money, bank_transfer]
+        notes:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [completed, pending, failed]
+        receiptId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    CollectionInput:
+      type: object
+      required: [customerId, amount, collectionDate, paymentMethod]
+      properties:
+        customerId:
+          type: integer
+        amount:
+          type: number
+          minimum: 0.01
+        collectionDate:
+          type: string
+          format: date
+        paymentMethod:
+          type: string
+          enum: [cash, mobile_money, bank_transfer]
+        notes:
+          type: string
+
+    Loan:
+      type: object
+      required: [id, customerId, principalAmount, outstandingBalance, status, startDate]
+      properties:
+        id:
+          type: integer
+        customerId:
+          type: integer
+        principalAmount:
+          type: number
+        outstandingBalance:
+          type: number
+        interestRate:
+          type: number
+        status:
+          type: string
+          enum: [active, overdue, paid]
+        startDate:
+          type: string
+          format: date
+        dueDate:
+          type: ["string", "null"]
+          format: date
+        totalRepaid:
+          type: number
+
+    Receipt:
+      type: object
+      required: [id, customerId, fileUrl, fileType, status, uploadedAt]
+      properties:
+        id:
+          type: integer
+        customerId:
+          type: integer
+        customerName:
+          type: ["string", "null"]
+        collectionId:
+          type: ["integer", "null"]
+        fileUrl:
+          type: string
+        fileType:
+          type: string
+          enum: [image, pdf]
+        fileName:
+          type: string
+        status:
+          type: string
+          enum: [pending, verified, rejected]
+        notes:
+          type: ["string", "null"]
+        uploadedAt:
+          type: string
+          format: date-time
+
+    ReceiptInput:
+      type: object
+      required: [customerId, fileUrl, fileType, fileName]
+      properties:
+        customerId:
+          type: integer
+        collectionId:
+          type: ["integer", "null"]
+        fileUrl:
+          type: string
+        fileType:
+          type: string
+          enum: [image, pdf]
+        fileName:
+          type: string
+        notes:
+          type: string
