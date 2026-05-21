@@ -1,8 +1,6 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { collectorsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
+import { getSupabaseClient } from "../lib/supabase";
 
 const router = Router();
 
@@ -41,16 +39,26 @@ router.post("/auth/login", async (req, res) => {
     res.status(400).json({ error: "Email and password required" });
     return;
   }
-  const [collector] = await db.select().from(collectorsTable).where(eq(collectorsTable.email, email)).limit(1);
-  if (!collector) {
+
+  const supabase = getSupabaseClient();
+  const { data: collectors, error } = await supabase
+    .from("collectors")
+    .select("*")
+    .eq("email", email)
+    .limit(1);
+
+  if (error || !collectors || collectors.length === 0) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
+
+  const collector = collectors[0];
   const hash = hashPassword(password);
-  if (collector.passwordHash !== hash) {
+  if (collector.password_hash !== hash) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
+
   const token = generateToken(collector.id);
   res.json({
     token,
@@ -60,9 +68,9 @@ router.post("/auth/login", async (req, res) => {
       email: collector.email,
       phone: collector.phone,
       zone: collector.zone,
-      avatarUrl: collector.avatarUrl,
-      totalCustomers: collector.totalCustomers,
-      createdAt: collector.createdAt,
+      avatarUrl: collector.avatar_url,
+      totalCustomers: collector.total_customers,
+      createdAt: collector.created_at,
     },
   });
 });
@@ -79,20 +87,29 @@ router.get("/auth/me", async (req, res) => {
     res.status(401).json({ error: "Invalid token" });
     return;
   }
-  const [collector] = await db.select().from(collectorsTable).where(eq(collectorsTable.id, payload.id)).limit(1);
-  if (!collector) {
+
+  const supabase = getSupabaseClient();
+  const { data: collectors, error } = await supabase
+    .from("collectors")
+    .select("*")
+    .eq("id", payload.id)
+    .limit(1);
+
+  if (error || !collectors || collectors.length === 0) {
     res.status(404).json({ error: "Collector not found" });
     return;
   }
+
+  const collector = collectors[0];
   res.json({
     id: collector.id,
     name: collector.name,
     email: collector.email,
     phone: collector.phone,
     zone: collector.zone,
-    avatarUrl: collector.avatarUrl,
-    totalCustomers: collector.totalCustomers,
-    createdAt: collector.createdAt,
+    avatarUrl: collector.avatar_url,
+    totalCustomers: collector.total_customers,
+    createdAt: collector.created_at,
   });
 });
 

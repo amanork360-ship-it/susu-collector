@@ -1,7 +1,5 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { customersTable, collectionsTable, loansTable, receiptsTable } from "@workspace/db";
-import { eq, and, ilike, or } from "drizzle-orm";
+import { getSupabaseClient } from "../lib/supabase";
 import { verifyToken } from "./auth";
 
 const router = Router();
@@ -17,120 +15,148 @@ function getCollectorId(req: any): number {
 router.get("/customers", async (req, res) => {
   const collectorId = getCollectorId(req);
   const { search, status } = req.query as { search?: string; status?: string };
+  const supabase = getSupabaseClient();
 
-  let customers = await db.select().from(customersTable).where(eq(customersTable.collectorId, collectorId));
+  let query = supabase.from("customers").select("*").eq("collector_id", collectorId);
 
+  if (status && status !== "all") {
+    query = query.eq("collection_status", status);
+  }
+
+  const { data: customers, error } = await query;
+  if (error) {
+    res.status(500).json({ error: error.message });
+    return;
+  }
+
+  let result = customers ?? [];
   if (search) {
     const s = search.toLowerCase();
-    customers = customers.filter(
-      (c) => c.name.toLowerCase().includes(s) || c.phone.includes(s)
+    result = result.filter(
+      (c: any) => c.name.toLowerCase().includes(s) || c.phone.includes(s)
     );
   }
 
-  if (status && status !== "all") {
-    customers = customers.filter((c) => c.collectionStatus === status);
-  }
-
   res.json(
-    customers.map((c) => ({
+    result.map((c: any) => ({
       id: c.id,
       name: c.name,
       phone: c.phone,
       address: c.address,
-      savingsBalance: parseFloat(c.savingsBalance),
-      collectionStatus: c.collectionStatus,
-      loanStatus: c.loanStatus,
-      outstandingLoan: c.outstandingLoan ? parseFloat(c.outstandingLoan) : null,
-      lastCollectionDate: c.lastCollectionDate,
-      avatarUrl: c.avatarUrl,
+      savingsBalance: parseFloat(c.savings_balance),
+      collectionStatus: c.collection_status,
+      loanStatus: c.loan_status,
+      outstandingLoan: c.outstanding_loan ? parseFloat(c.outstanding_loan) : null,
+      lastCollectionDate: c.last_collection_date,
+      avatarUrl: c.avatar_url,
     }))
   );
 });
 
 router.get("/customers/:id", async (req, res) => {
   const id = parseInt(req.params["id"]!);
-  const [c] = await db.select().from(customersTable).where(eq(customersTable.id, id)).limit(1);
-  if (!c) {
+  const supabase = getSupabaseClient();
+
+  const { data: customers, error } = await supabase
+    .from("customers")
+    .select("*")
+    .eq("id", id)
+    .limit(1);
+
+  if (error || !customers || customers.length === 0) {
     res.status(404).json({ error: "Customer not found" });
     return;
   }
+
+  const c = customers[0];
   res.json({
     id: c.id,
     name: c.name,
     phone: c.phone,
     address: c.address,
-    savingsBalance: parseFloat(c.savingsBalance),
-    collectionStatus: c.collectionStatus,
-    loanStatus: c.loanStatus,
-    outstandingLoan: c.outstandingLoan ? parseFloat(c.outstandingLoan) : null,
-    totalCollected: parseFloat(c.totalCollected),
-    lastCollectionDate: c.lastCollectionDate,
-    joinedAt: c.joinedAt,
-    avatarUrl: c.avatarUrl,
+    savingsBalance: parseFloat(c.savings_balance),
+    collectionStatus: c.collection_status,
+    loanStatus: c.loan_status,
+    outstandingLoan: c.outstanding_loan ? parseFloat(c.outstanding_loan) : null,
+    totalCollected: parseFloat(c.total_collected),
+    lastCollectionDate: c.last_collection_date,
+    joinedAt: c.joined_at,
+    avatarUrl: c.avatar_url,
     notes: c.notes,
   });
 });
 
 router.get("/customers/:id/collections", async (req, res) => {
   const customerId = parseInt(req.params["id"]!);
-  const rows = await db
-    .select()
-    .from(collectionsTable)
-    .where(eq(collectionsTable.customerId, customerId))
-    .orderBy(collectionsTable.createdAt);
+  const supabase = getSupabaseClient();
 
-  const [customer] = await db.select({ name: customersTable.name }).from(customersTable).where(eq(customersTable.id, customerId)).limit(1);
+  const [collectionsRes, customerRes] = await Promise.all([
+    supabase.from("collections").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
+    supabase.from("customers").select("name").eq("id", customerId).limit(1),
+  ]);
+
+  const customerName = customerRes.data?.[0]?.name ?? "";
 
   res.json(
-    rows.map((c) => ({
+    (collectionsRes.data ?? []).map((c: any) => ({
       id: c.id,
-      customerId: c.customerId,
-      customerName: customer?.name ?? "",
+      customerId: c.customer_id,
+      customerName,
       amount: parseFloat(c.amount),
-      collectionDate: c.collectionDate,
-      paymentMethod: c.paymentMethod,
+      collectionDate: c.collection_date,
+      paymentMethod: c.payment_method,
       notes: c.notes,
       status: c.status,
-      receiptId: c.receiptId,
-      createdAt: c.createdAt,
+      receiptId: c.receipt_id,
+      createdAt: c.created_at,
     }))
   );
 });
 
 router.get("/customers/:id/loans", async (req, res) => {
   const customerId = parseInt(req.params["id"]!);
-  const rows = await db.select().from(loansTable).where(eq(loansTable.customerId, customerId));
+  const supabase = getSupabaseClient();
+
+  const { data: rows } = await supabase.from("loans").select("*").eq("customer_id", customerId);
+
   res.json(
-    rows.map((l) => ({
+    (rows ?? []).map((l: any) => ({
       id: l.id,
-      customerId: l.customerId,
-      principalAmount: parseFloat(l.principalAmount),
-      outstandingBalance: parseFloat(l.outstandingBalance),
-      interestRate: parseFloat(l.interestRate),
+      customerId: l.customer_id,
+      principalAmount: parseFloat(l.principal_amount),
+      outstandingBalance: parseFloat(l.outstanding_balance),
+      interestRate: parseFloat(l.interest_rate),
       status: l.status,
-      startDate: l.startDate,
-      dueDate: l.dueDate,
-      totalRepaid: parseFloat(l.totalRepaid),
+      startDate: l.start_date,
+      dueDate: l.due_date,
+      totalRepaid: parseFloat(l.total_repaid),
     }))
   );
 });
 
 router.get("/customers/:id/receipts", async (req, res) => {
   const customerId = parseInt(req.params["id"]!);
-  const [customer] = await db.select({ name: customersTable.name }).from(customersTable).where(eq(customersTable.id, customerId)).limit(1);
-  const rows = await db.select().from(receiptsTable).where(eq(receiptsTable.customerId, customerId));
+  const supabase = getSupabaseClient();
+
+  const [receiptsRes, customerRes] = await Promise.all([
+    supabase.from("receipts").select("*").eq("customer_id", customerId).order("uploaded_at", { ascending: false }),
+    supabase.from("customers").select("name").eq("id", customerId).limit(1),
+  ]);
+
+  const customerName = customerRes.data?.[0]?.name ?? null;
+
   res.json(
-    rows.map((r) => ({
+    (receiptsRes.data ?? []).map((r: any) => ({
       id: r.id,
-      customerId: r.customerId,
-      customerName: customer?.name ?? null,
-      collectionId: r.collectionId,
-      fileUrl: r.fileUrl,
-      fileType: r.fileType,
-      fileName: r.fileName,
+      customerId: r.customer_id,
+      customerName,
+      collectionId: r.collection_id,
+      fileUrl: r.file_url,
+      fileType: r.file_type,
+      fileName: r.file_name,
       status: r.status,
       notes: r.notes,
-      uploadedAt: r.uploadedAt,
+      uploadedAt: r.uploaded_at,
     }))
   );
 });

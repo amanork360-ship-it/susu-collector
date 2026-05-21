@@ -1,7 +1,5 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { collectionsTable, customersTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { getSupabaseClient } from "../lib/supabase";
 import { verifyToken } from "./auth";
 
 const router = Router();
@@ -17,35 +15,32 @@ function getCollectorId(req: any): number {
 router.get("/collections", async (req, res) => {
   const collectorId = getCollectorId(req);
   const { date, customerId } = req.query as { date?: string; customerId?: string };
+  const supabase = getSupabaseClient();
 
-  let rows = await db
-    .select({
-      collection: collectionsTable,
-      customerName: customersTable.name,
-    })
-    .from(collectionsTable)
-    .innerJoin(customersTable, eq(collectionsTable.customerId, customersTable.id))
-    .where(eq(collectionsTable.collectorId, collectorId));
+  let query = supabase
+    .from("collections")
+    .select("*, customers(name)")
+    .eq("collector_id", collectorId)
+    .order("created_at", { ascending: false });
 
-  if (date) {
-    rows = rows.filter((r) => r.collection.collectionDate === date);
-  }
-  if (customerId) {
-    rows = rows.filter((r) => r.collection.customerId === parseInt(customerId));
-  }
+  if (date) query = query.eq("collection_date", date);
+  if (customerId) query = query.eq("customer_id", parseInt(customerId));
+
+  const { data: rows, error } = await query;
+  if (error) { res.status(500).json({ error: error.message }); return; }
 
   res.json(
-    rows.map(({ collection: c, customerName }) => ({
+    (rows ?? []).map((c: any) => ({
       id: c.id,
-      customerId: c.customerId,
-      customerName,
+      customerId: c.customer_id,
+      customerName: (c.customers as any)?.name ?? "",
       amount: parseFloat(c.amount),
-      collectionDate: c.collectionDate,
-      paymentMethod: c.paymentMethod,
+      collectionDate: c.collection_date,
+      paymentMethod: c.payment_method,
       notes: c.notes,
       status: c.status,
-      receiptId: c.receiptId,
-      createdAt: c.createdAt,
+      receiptId: c.receipt_id,
+      createdAt: c.created_at,
     }))
   );
 });
@@ -63,72 +58,86 @@ router.post("/collections", async (req, res) => {
     return;
   }
 
-  const [customer] = await db.select().from(customersTable).where(eq(customersTable.id, customerId)).limit(1);
-  if (!customer) {
+  const supabase = getSupabaseClient();
+
+  const { data: customers } = await supabase.from("customers").select("*").eq("id", customerId).limit(1);
+  if (!customers || customers.length === 0) {
     res.status(404).json({ error: "Customer not found" });
     return;
   }
+  const customer = customers[0];
 
-  const [collection] = await db.insert(collectionsTable).values({
-    customerId,
-    collectorId,
-    amount: amount.toString(),
-    collectionDate,
-    paymentMethod,
-    notes: notes || null,
-    status: "completed",
-  }).returning();
-
-  // Update customer savings balance and status
-  await db
-    .update(customersTable)
-    .set({
-      savingsBalance: (parseFloat(customer.savingsBalance) + parseFloat(amount)).toFixed(2),
-      totalCollected: (parseFloat(customer.totalCollected) + parseFloat(amount)).toFixed(2),
-      collectionStatus: "collected",
-      lastCollectionDate: collectionDate,
+  const { data: inserted, error: insertErr } = await supabase
+    .from("collections")
+    .insert({
+      customer_id: customerId,
+      collector_id: collectorId,
+      amount: parseFloat(amount).toFixed(2),
+      collection_date: collectionDate,
+      payment_method: paymentMethod,
+      notes: notes || null,
+      status: "completed",
     })
-    .where(eq(customersTable.id, customerId));
+    .select()
+    .single();
+
+  if (insertErr || !inserted) {
+    res.status(500).json({ error: insertErr?.message ?? "Insert failed" });
+    return;
+  }
+
+  // Update customer savings balance and collection status
+  await supabase
+    .from("customers")
+    .update({
+      savings_balance: (parseFloat(customer.savings_balance) + parseFloat(amount)).toFixed(2),
+      total_collected: (parseFloat(customer.total_collected) + parseFloat(amount)).toFixed(2),
+      collection_status: "collected",
+      last_collection_date: collectionDate,
+    })
+    .eq("id", customerId);
 
   res.status(201).json({
-    id: collection!.id,
-    customerId: collection!.customerId,
+    id: inserted.id,
+    customerId: inserted.customer_id,
     customerName: customer.name,
-    amount: parseFloat(collection!.amount),
-    collectionDate: collection!.collectionDate,
-    paymentMethod: collection!.paymentMethod,
-    notes: collection!.notes,
-    status: collection!.status,
-    receiptId: collection!.receiptId,
-    createdAt: collection!.createdAt,
+    amount: parseFloat(inserted.amount),
+    collectionDate: inserted.collection_date,
+    paymentMethod: inserted.payment_method,
+    notes: inserted.notes,
+    status: inserted.status,
+    receiptId: inserted.receipt_id,
+    createdAt: inserted.created_at,
   });
 });
 
 router.get("/collections/:id", async (req, res) => {
   const id = parseInt(req.params["id"]!);
-  const [row] = await db
-    .select({ collection: collectionsTable, customerName: customersTable.name })
-    .from(collectionsTable)
-    .innerJoin(customersTable, eq(collectionsTable.customerId, customersTable.id))
-    .where(eq(collectionsTable.id, id))
+  const supabase = getSupabaseClient();
+
+  const { data: rows, error } = await supabase
+    .from("collections")
+    .select("*, customers(name)")
+    .eq("id", id)
     .limit(1);
 
-  if (!row) {
+  if (error || !rows || rows.length === 0) {
     res.status(404).json({ error: "Collection not found" });
     return;
   }
-  const { collection: c, customerName } = row;
+
+  const c = rows[0];
   res.json({
     id: c.id,
-    customerId: c.customerId,
-    customerName,
+    customerId: c.customer_id,
+    customerName: (c.customers as any)?.name ?? "",
     amount: parseFloat(c.amount),
-    collectionDate: c.collectionDate,
-    paymentMethod: c.paymentMethod,
+    collectionDate: c.collection_date,
+    paymentMethod: c.payment_method,
     notes: c.notes,
     status: c.status,
-    receiptId: c.receiptId,
-    createdAt: c.createdAt,
+    receiptId: c.receipt_id,
+    createdAt: c.created_at,
   });
 });
 

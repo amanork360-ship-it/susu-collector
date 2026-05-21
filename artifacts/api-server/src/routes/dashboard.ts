@@ -1,129 +1,138 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { collectionsTable, customersTable, receiptsTable } from "@workspace/db";
-import { eq, sql, gte, and } from "drizzle-orm";
+import { getSupabaseClient } from "../lib/supabase";
 import { verifyToken } from "./auth";
 
 const router = Router();
 
-function getCollectorId(req: any): number | null {
+function getCollectorId(req: any): number {
   const authHeader = req.headers["authorization"];
   const token = authHeader?.replace("Bearer ", "");
-  if (!token) return null;
+  if (!token) return 1;
   const payload = verifyToken(token);
-  return payload?.id ?? null;
+  return payload?.id ?? 1;
 }
 
 router.get("/dashboard/summary", async (req, res) => {
-  const collectorId = getCollectorId(req) ?? 1;
+  const collectorId = getCollectorId(req);
+  const supabase = getSupabaseClient();
 
-  const today = new Date().toISOString().split("T")[0];
-  const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+  const today = new Date().toISOString().split("T")[0]!;
+  const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    .toISOString()
+    .split("T")[0]!;
 
-  const [todayCollections] = await db
-    .select({ total: sql<string>`COALESCE(SUM(amount::numeric), 0)`, count: sql<number>`COUNT(*)` })
-    .from(collectionsTable)
-    .where(and(eq(collectionsTable.collectorId, collectorId), eq(collectionsTable.collectionDate, today!), eq(collectionsTable.status, "completed")));
+  const [todayRes, monthRes, customersRes, loanRepaymentsRes] = await Promise.all([
+    supabase
+      .from("collections")
+      .select("amount")
+      .eq("collector_id", collectorId)
+      .eq("collection_date", today)
+      .eq("status", "completed"),
+    supabase
+      .from("collections")
+      .select("amount")
+      .eq("collector_id", collectorId)
+      .gte("collection_date", firstOfMonth)
+      .eq("status", "completed"),
+    supabase
+      .from("customers")
+      .select("collection_status")
+      .eq("collector_id", collectorId),
+    supabase
+      .from("collections")
+      .select("amount")
+      .eq("collector_id", collectorId)
+      .eq("collection_date", today)
+      .eq("payment_method", "bank_transfer"),
+  ]);
 
-  const [monthCollections] = await db
-    .select({ total: sql<string>`COALESCE(SUM(amount::numeric), 0)` })
-    .from(collectionsTable)
-    .where(and(eq(collectionsTable.collectorId, collectorId), gte(collectionsTable.collectionDate, firstOfMonth!), eq(collectionsTable.status, "completed")));
-
-  const customers = await db.select({ status: customersTable.collectionStatus }).from(customersTable).where(eq(customersTable.collectorId, collectorId));
-
+  const totalCollectedToday = (todayRes.data ?? []).reduce((s: number, r: any) => s + parseFloat(r.amount), 0);
+  const totalCollectedMonth = (monthRes.data ?? []).reduce((s: number, r: any) => s + parseFloat(r.amount), 0);
+  const customers = customersRes.data ?? [];
   const totalCustomers = customers.length;
-  const pendingCount = customers.filter((c) => c.status === "pending" || c.status === "overdue").length;
-  const collectedToday = customers.filter((c) => c.status === "collected").length;
-
-  const loanRepayments = await db
-    .select({ total: sql<string>`COALESCE(SUM(amount::numeric), 0)` })
-    .from(collectionsTable)
-    .where(and(eq(collectionsTable.collectorId, collectorId), eq(collectionsTable.collectionDate, today!), eq(collectionsTable.paymentMethod, "bank_transfer")));
+  const pendingCount = customers.filter((c: any) => c.collection_status === "pending" || c.collection_status === "overdue").length;
+  const collectedToday = customers.filter((c: any) => c.collection_status === "collected").length;
+  const loanRepaymentsToday = (loanRepaymentsRes.data ?? []).reduce((s: number, r: any) => s + parseFloat(r.amount), 0);
 
   res.json({
-    totalCollectedToday: parseFloat(todayCollections?.total ?? "0"),
+    totalCollectedToday,
     assignedCustomers: totalCustomers,
     pendingCollections: pendingCount,
-    loanRepaymentsToday: parseFloat(loanRepayments[0]?.total ?? "0"),
-    totalCollectedMonth: parseFloat(monthCollections?.total ?? "0"),
+    loanRepaymentsToday,
+    totalCollectedMonth,
     collectionRate: totalCustomers > 0 ? Math.round((collectedToday / totalCustomers) * 100) : 0,
   });
 });
 
 router.get("/dashboard/collections-trend", async (req, res) => {
-  const collectorId = getCollectorId(req) ?? 1;
+  const collectorId = getCollectorId(req);
+  const supabase = getSupabaseClient();
 
-  const rows = await db
-    .select({
-      date: collectionsTable.collectionDate,
-      total: sql<string>`SUM(amount::numeric)`,
-      count: sql<number>`COUNT(*)`,
-    })
-    .from(collectionsTable)
-    .where(and(eq(collectionsTable.collectorId, collectorId), eq(collectionsTable.status, "completed"), gte(collectionsTable.collectionDate, sql`CURRENT_DATE - INTERVAL '6 days'`)))
-    .groupBy(collectionsTable.collectionDate)
-    .orderBy(collectionsTable.collectionDate);
+  const sixDaysAgo = new Date(Date.now() - 6 * 86400000).toISOString().split("T")[0]!;
+
+  const { data: rows } = await supabase
+    .from("collections")
+    .select("collection_date, amount")
+    .eq("collector_id", collectorId)
+    .eq("status", "completed")
+    .gte("collection_date", sixDaysAgo);
 
   const last7: { date: string; amount: number; count: number }[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const ds = d.toISOString().split("T")[0]!;
-    const row = rows.find((r) => r.date === ds);
-    last7.push({ date: ds, amount: parseFloat(row?.total ?? "0"), count: row?.count ?? 0 });
+    const dayRows = (rows ?? []).filter((r: any) => r.collection_date === ds);
+    last7.push({
+      date: ds,
+      amount: dayRows.reduce((s: number, r: any) => s + parseFloat(r.amount), 0),
+      count: dayRows.length,
+    });
   }
+
   res.json(last7);
 });
 
 router.get("/dashboard/recent-activity", async (req, res) => {
-  const collectorId = getCollectorId(req) ?? 1;
+  const collectorId = getCollectorId(req);
+  const supabase = getSupabaseClient();
 
-  const recentCollections = await db
-    .select({
-      id: collectionsTable.id,
-      amount: collectionsTable.amount,
-      createdAt: collectionsTable.createdAt,
-      customerName: customersTable.name,
-      paymentMethod: collectionsTable.paymentMethod,
-    })
-    .from(collectionsTable)
-    .innerJoin(customersTable, eq(collectionsTable.customerId, customersTable.id))
-    .where(eq(collectionsTable.collectorId, collectorId))
-    .orderBy(sql`${collectionsTable.createdAt} DESC`)
-    .limit(5);
+  const [collectionsRes, receiptsRes] = await Promise.all([
+    supabase
+      .from("collections")
+      .select("id, amount, created_at, payment_method, customers(name)")
+      .eq("collector_id", collectorId)
+      .order("created_at", { ascending: false })
+      .limit(5),
+    supabase
+      .from("receipts")
+      .select("id, uploaded_at, file_name, customers(name)")
+      .eq("collector_id", collectorId)
+      .order("uploaded_at", { ascending: false })
+      .limit(5),
+  ]);
 
-  const recentReceipts = await db
-    .select({
-      id: receiptsTable.id,
-      uploadedAt: receiptsTable.uploadedAt,
-      customerName: customersTable.name,
-      fileName: receiptsTable.fileName,
-    })
-    .from(receiptsTable)
-    .innerJoin(customersTable, eq(receiptsTable.customerId, customersTable.id))
-    .where(eq(receiptsTable.collectorId, collectorId))
-    .orderBy(sql`${receiptsTable.uploadedAt} DESC`)
-    .limit(5);
+  const collections = (collectionsRes.data ?? []).map((c: any) => ({
+    id: c.id,
+    type: "collection",
+    description: `Collection recorded for ${(c.customers as any)?.name ?? "Unknown"} via ${c.payment_method.replace(/_/g, " ")}`,
+    amount: parseFloat(c.amount),
+    customerName: (c.customers as any)?.name ?? null,
+    timestamp: c.created_at,
+  }));
 
-  const activity = [
-    ...recentCollections.map((c) => ({
-      id: c.id,
-      type: "collection",
-      description: `Collection recorded for ${c.customerName} via ${c.paymentMethod.replace("_", " ")}`,
-      amount: parseFloat(c.amount),
-      customerName: c.customerName,
-      timestamp: c.createdAt,
-    })),
-    ...recentReceipts.map((r) => ({
-      id: r.id + 10000,
-      type: "receipt_upload",
-      description: `Receipt uploaded for ${r.customerName}: ${r.fileName}`,
-      amount: null,
-      customerName: r.customerName,
-      timestamp: r.uploadedAt,
-    })),
-  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 8);
+  const receipts = (receiptsRes.data ?? []).map((r: any) => ({
+    id: r.id + 10000,
+    type: "receipt_upload",
+    description: `Receipt uploaded for ${(r.customers as any)?.name ?? "Unknown"}: ${r.file_name}`,
+    amount: null,
+    customerName: (r.customers as any)?.name ?? null,
+    timestamp: r.uploaded_at,
+  }));
+
+  const activity = [...collections, ...receipts]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 8);
 
   res.json(activity);
 });
