@@ -403,6 +403,10 @@ importers:
         version: 3.25.76
 
   artifacts/susu-collector:
+    dependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.106.1
+        version: 2.106.1
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
