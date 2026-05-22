@@ -173,7 +173,7 @@ router.get("/admin/customers", requireAdmin, async (req, res) => {
 });
 
 router.post("/admin/customers", requireAdmin, async (req, res) => {
-  const { name, phone, address, collectorId, zone, notes } = req.body;
+  const { name, phone, address, collectorId, notes } = req.body;
   if (!name || !phone || !collectorId) {
     res.status(400).json({ error: "Name, phone and collectorId are required" });
     return;
@@ -193,7 +193,6 @@ router.post("/admin/customers", requireAdmin, async (req, res) => {
     .insert({
       name, phone,
       address: address || null,
-      zone: zone || collector[0].zone || "Unassigned",
       collector_id: collectorId,
       savings_balance: "0.00",
       total_collected: "0.00",

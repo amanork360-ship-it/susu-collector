@@ -16,7 +16,7 @@ interface Collector {
 function AddCustomerModal({ collectors, onClose, onAdded }: {
   collectors: Collector[]; onClose: () => void; onAdded: () => void;
 }) {
-  const [form, setForm] = useState({ name: "", phone: "", collectorId: "", address: "", zone: "", notes: "" });
+  const [form, setForm] = useState({ name: "", phone: "", collectorId: "", address: "", notes: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -42,7 +42,6 @@ function AddCustomerModal({ collectors, onClose, onAdded }: {
             { label: "Full Name", key: "name", required: true },
             { label: "Phone", key: "phone", required: true },
             { label: "Address", key: "address" },
-            { label: "Zone", key: "zone" },
             { label: "Notes", key: "notes" },
           ].map(({ label, key, required }) => (
             <div key={key}>

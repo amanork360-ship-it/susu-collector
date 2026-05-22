@@ -41,7 +41,7 @@ export const api = {
     return apiFetch(`/admin/customers?${q}`);
   },
 
-  createCustomer: (data: { name: string; phone: string; collectorId: number; address?: string; zone?: string; notes?: string }) =>
+  createCustomer: (data: { name: string; phone: string; collectorId: number; address?: string; notes?: string }) =>
     apiFetch("/admin/customers", { method: "POST", body: JSON.stringify(data) }),
 
   assignCustomer: (customerId: number, collectorId: number) =>
