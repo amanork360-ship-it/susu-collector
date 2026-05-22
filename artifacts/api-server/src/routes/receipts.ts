@@ -1,19 +1,11 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../lib/supabase";
-import { verifyToken } from "./auth";
+import { requireAuth, AuthRequest } from "../middleware/require-auth";
 
 const router = Router();
 
-function getCollectorId(req: any): number {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader?.replace("Bearer ", "");
-  if (!token) return 1;
-  const payload = verifyToken(token);
-  return payload?.id ?? 1;
-}
-
-router.get("/receipts", async (req, res) => {
-  const collectorId = getCollectorId(req);
+router.get("/receipts", requireAuth, async (req: Request, res: Response) => {
+  const collectorId = (req as AuthRequest).collectorId;
   const { customerId, collectionId } = req.query as { customerId?: string; collectionId?: string };
   const supabase = getSupabaseClient();
 
@@ -45,8 +37,8 @@ router.get("/receipts", async (req, res) => {
   );
 });
 
-router.post("/receipts", async (req, res) => {
-  const collectorId = getCollectorId(req);
+router.post("/receipts", requireAuth, async (req: Request, res: Response) => {
+  const collectorId = (req as AuthRequest).collectorId;
   const { customerId, collectionId, fileUrl, fileType, fileName, notes } = req.body;
 
   if (!customerId || !fileUrl || !fileType || !fileName) {
@@ -56,7 +48,13 @@ router.post("/receipts", async (req, res) => {
 
   const supabase = getSupabaseClient();
 
-  const { data: customers } = await supabase.from("customers").select("name").eq("id", customerId).limit(1);
+  const { data: customers } = await supabase
+    .from("customers")
+    .select("name")
+    .eq("id", customerId)
+    .eq("collector_id", collectorId)
+    .limit(1);
+
   if (!customers || customers.length === 0) {
     res.status(404).json({ error: "Customer not found" });
     return;
@@ -96,14 +94,16 @@ router.post("/receipts", async (req, res) => {
   });
 });
 
-router.get("/receipts/:id", async (req, res) => {
-  const id = parseInt(req.params["id"]!);
+router.get("/receipts/:id", requireAuth, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"]));
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
 
   const { data: rows, error } = await supabase
     .from("receipts")
     .select("*, customers(name)")
     .eq("id", id)
+    .eq("collector_id", collectorId)
     .limit(1);
 
   if (error || !rows || rows.length === 0) {

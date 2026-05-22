@@ -1,19 +1,11 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../lib/supabase";
-import { verifyToken } from "./auth";
+import { requireAuth, AuthRequest } from "../middleware/require-auth";
 
 const router = Router();
 
-function getCollectorId(req: any): number {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader?.replace("Bearer ", "");
-  if (!token) return 1;
-  const payload = verifyToken(token);
-  return payload?.id ?? 1;
-}
-
-router.get("/dashboard/summary", async (req, res) => {
-  const collectorId = getCollectorId(req);
+router.get("/dashboard/summary", requireAuth, async (req: Request, res: Response) => {
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
 
   const today = new Date().toISOString().split("T")[0]!;
@@ -64,8 +56,8 @@ router.get("/dashboard/summary", async (req, res) => {
   });
 });
 
-router.get("/dashboard/collections-trend", async (req, res) => {
-  const collectorId = getCollectorId(req);
+router.get("/dashboard/collections-trend", requireAuth, async (req: Request, res: Response) => {
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
 
   const sixDaysAgo = new Date(Date.now() - 6 * 86400000).toISOString().split("T")[0]!;
@@ -93,8 +85,8 @@ router.get("/dashboard/collections-trend", async (req, res) => {
   res.json(last7);
 });
 
-router.get("/dashboard/recent-activity", async (req, res) => {
-  const collectorId = getCollectorId(req);
+router.get("/dashboard/recent-activity", requireAuth, async (req: Request, res: Response) => {
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
 
   const [collectionsRes, receiptsRes] = await Promise.all([

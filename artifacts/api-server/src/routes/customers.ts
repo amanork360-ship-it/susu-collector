@@ -1,19 +1,11 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../lib/supabase";
-import { verifyToken } from "./auth";
+import { requireAuth, AuthRequest } from "../middleware/require-auth";
 
 const router = Router();
 
-function getCollectorId(req: any): number {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader?.replace("Bearer ", "");
-  if (!token) return 1;
-  const payload = verifyToken(token);
-  return payload?.id ?? 1;
-}
-
-router.get("/customers", async (req, res) => {
-  const collectorId = getCollectorId(req);
+router.get("/customers", requireAuth, async (req: Request, res: Response) => {
+  const collectorId = (req as AuthRequest).collectorId;
   const { search, status } = req.query as { search?: string; status?: string };
   const supabase = getSupabaseClient();
 
@@ -53,14 +45,16 @@ router.get("/customers", async (req, res) => {
   );
 });
 
-router.get("/customers/:id", async (req, res) => {
-  const id = parseInt(req.params["id"]!);
+router.get("/customers/:id", requireAuth, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"]));
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
 
   const { data: customers, error } = await supabase
     .from("customers")
     .select("*")
     .eq("id", id)
+    .eq("collector_id", collectorId)
     .limit(1);
 
   if (error || !customers || customers.length === 0) {
@@ -86,16 +80,32 @@ router.get("/customers/:id", async (req, res) => {
   });
 });
 
-router.get("/customers/:id/collections", async (req, res) => {
-  const customerId = parseInt(req.params["id"]!);
+router.get("/customers/:id/collections", requireAuth, async (req: Request, res: Response) => {
+  const customerId = parseInt(String(req.params["id"]));
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
 
   const [collectionsRes, customerRes] = await Promise.all([
-    supabase.from("collections").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
-    supabase.from("customers").select("name").eq("id", customerId).limit(1),
+    supabase
+      .from("collections")
+      .select("*")
+      .eq("customer_id", customerId)
+      .eq("collector_id", collectorId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("customers")
+      .select("name")
+      .eq("id", customerId)
+      .eq("collector_id", collectorId)
+      .limit(1),
   ]);
 
-  const customerName = customerRes.data?.[0]?.name ?? "";
+  if (!customerRes.data || customerRes.data.length === 0) {
+    res.status(404).json({ error: "Customer not found" });
+    return;
+  }
+
+  const customerName = customerRes.data[0]?.name ?? "";
 
   res.json(
     (collectionsRes.data ?? []).map((c: any) => ({
@@ -113,9 +123,23 @@ router.get("/customers/:id/collections", async (req, res) => {
   );
 });
 
-router.get("/customers/:id/loans", async (req, res) => {
-  const customerId = parseInt(req.params["id"]!);
+router.get("/customers/:id/loans", requireAuth, async (req: Request, res: Response) => {
+  const customerId = parseInt(String(req.params["id"]));
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
+
+  // Verify this customer belongs to the collector
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("id")
+    .eq("id", customerId)
+    .eq("collector_id", collectorId)
+    .limit(1);
+
+  if (!customer || customer.length === 0) {
+    res.status(404).json({ error: "Customer not found" });
+    return;
+  }
 
   const { data: rows } = await supabase.from("loans").select("*").eq("customer_id", customerId);
 
@@ -134,16 +158,32 @@ router.get("/customers/:id/loans", async (req, res) => {
   );
 });
 
-router.get("/customers/:id/receipts", async (req, res) => {
-  const customerId = parseInt(req.params["id"]!);
+router.get("/customers/:id/receipts", requireAuth, async (req: Request, res: Response) => {
+  const customerId = parseInt(String(req.params["id"]));
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
 
   const [receiptsRes, customerRes] = await Promise.all([
-    supabase.from("receipts").select("*").eq("customer_id", customerId).order("uploaded_at", { ascending: false }),
-    supabase.from("customers").select("name").eq("id", customerId).limit(1),
+    supabase
+      .from("receipts")
+      .select("*")
+      .eq("customer_id", customerId)
+      .eq("collector_id", collectorId)
+      .order("uploaded_at", { ascending: false }),
+    supabase
+      .from("customers")
+      .select("name")
+      .eq("id", customerId)
+      .eq("collector_id", collectorId)
+      .limit(1),
   ]);
 
-  const customerName = customerRes.data?.[0]?.name ?? null;
+  if (!customerRes.data || customerRes.data.length === 0) {
+    res.status(404).json({ error: "Customer not found" });
+    return;
+  }
+
+  const customerName = customerRes.data[0]?.name ?? null;
 
   res.json(
     (receiptsRes.data ?? []).map((r: any) => ({

@@ -1,19 +1,11 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../lib/supabase";
-import { verifyToken } from "./auth";
+import { requireAuth, AuthRequest } from "../middleware/require-auth";
 
 const router = Router();
 
-function getCollectorId(req: any): number {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader?.replace("Bearer ", "");
-  if (!token) return 1;
-  const payload = verifyToken(token);
-  return payload?.id ?? 1;
-}
-
-router.get("/collections", async (req, res) => {
-  const collectorId = getCollectorId(req);
+router.get("/collections", requireAuth, async (req: Request, res: Response) => {
+  const collectorId = (req as AuthRequest).collectorId;
   const { date, customerId } = req.query as { date?: string; customerId?: string };
   const supabase = getSupabaseClient();
 
@@ -45,8 +37,8 @@ router.get("/collections", async (req, res) => {
   );
 });
 
-router.post("/collections", async (req, res) => {
-  const collectorId = getCollectorId(req);
+router.post("/collections", requireAuth, async (req: Request, res: Response) => {
+  const collectorId = (req as AuthRequest).collectorId;
   const { customerId, amount, collectionDate, paymentMethod, notes } = req.body;
 
   if (!customerId || !amount || !collectionDate || !paymentMethod) {
@@ -86,7 +78,6 @@ router.post("/collections", async (req, res) => {
     return;
   }
 
-  // Update customer savings balance and collection status
   await supabase
     .from("customers")
     .update({
@@ -111,14 +102,16 @@ router.post("/collections", async (req, res) => {
   });
 });
 
-router.get("/collections/:id", async (req, res) => {
-  const id = parseInt(req.params["id"]!);
+router.get("/collections/:id", requireAuth, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params["id"]));
+  const collectorId = (req as AuthRequest).collectorId;
   const supabase = getSupabaseClient();
 
   const { data: rows, error } = await supabase
     .from("collections")
     .select("*, customers(name)")
     .eq("id", id)
+    .eq("collector_id", collectorId)
     .limit(1);
 
   if (error || !rows || rows.length === 0) {
