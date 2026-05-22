@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { useState } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation, Link } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LayoutDashboard, Users, UserCheck, LogOut, Shield, Menu, X } from "lucide-react";
@@ -12,7 +12,7 @@ function NavItem({ href, icon: Icon, label, onClick }: { href: string; icon: any
   const [location] = useLocation();
   const active = location === href || (href !== "/" && location.startsWith(href));
   return (
-    <a
+    <Link
       href={href}
       onClick={onClick}
       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
@@ -23,7 +23,7 @@ function NavItem({ href, icon: Icon, label, onClick }: { href: string; icon: any
     >
       <Icon className="w-4 h-4" />
       {label}
-    </a>
+    </Link>
   );
 }
 
