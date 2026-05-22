@@ -6,6 +6,7 @@ import dashboardRouter from "./dashboard";
 import customersRouter from "./customers";
 import collectionsRouter from "./collections";
 import receiptsRouter from "./receipts";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(dashboardRouter);
 router.use(customersRouter);
 router.use(collectionsRouter);
 router.use(receiptsRouter);
+router.use(adminRouter);
 
 export default router;
