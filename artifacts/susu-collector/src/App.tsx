@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "next-themes";
+import { setAuthTokenGetter } from "@workspace/api-client-react";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import AuthCallback from "@/pages/auth-callback";
@@ -13,6 +14,8 @@ import NewCollection from "@/pages/new-collection";
 import Receipts from "@/pages/receipts";
 import Profile from "@/pages/profile";
 import { ProtectedRoute } from "@/components/protected-route";
+
+setAuthTokenGetter(() => localStorage.getItem("susu_token"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
